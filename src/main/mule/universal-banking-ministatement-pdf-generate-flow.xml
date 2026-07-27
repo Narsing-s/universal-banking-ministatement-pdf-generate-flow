@@ -1,0 +1,620 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:java="http://www.mulesoft.org/schema/mule/java"
+	xmlns:email="http://www.mulesoft.org/schema/mule/email" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:snowflake="http://www.mulesoft.org/schema/mule/snowflake" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/snowflake http://www.mulesoft.org/schema/mule/snowflake/current/mule-snowflake.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd
+http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	<snowflake:snowflake-config name="Snowflake_Config" doc:name="Snowflake Config" doc:id="787ef5c5-0ade-4051-8fdc-c21de175f292" >
+		<snowflake:snowflake-connection accountName="TICPWBD-IC44792" warehouse="COMPUTE_WH" database="MYDATABASE" schema="PUBLIC" user="MYDB" password="Mydb@123456789" role="ACCOUNTADMIN" />
+	</snowflake:snowflake-config>
+	<email:smtp-config name="Email_SMTP" doc:name="Email SMTP" doc:id="24a2d0a4-33b8-43fd-9549-bdb4466b584e" >
+		<email:smtp-connection host="smtp.gmail.com" port="587" user="narsingbeesetti06@gmail.com" password="ajfq nryi lwjh zhev" >
+			<email:properties >
+				<email:property key="mail.smtp.starttls.enable" value="true" />
+			</email:properties>
+		</email:smtp-connection>
+	</email:smtp-config>
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="04491a27-b76d-4694-b1bb-3563949e2ea2" >
+		<http:request-connection host="api.pdfshift.io" protocol="HTTPS" connectionIdleTimeout="900000"/>
+	</http:request-config>
+	<file:config name="File_Config" doc:name="File Config" doc:id="066e7030-4588-484c-8ff7-cddff866561f" />
+	<flow name="universal-banking-ministatement-pdf-generate-flow" doc:id="e3262879-a895-443b-a60c-72cf49a11333" >
+		<scheduler doc:name="Scheduler" doc:id="6ebc2c43-1d78-4117-8aef-b9fb3fdad58c" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="5" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<logger level="INFO" doc:name="Batch job is started" doc:id="167382e9-34ae-484d-adab-c35fa20d5400" message="-----------------------------------Monthly statement API started----------------------------------------"/>
+		<snowflake:select doc:id="87d23a70-7620-4bdf-a5de-d4870250fde3" config-ref="Snowflake_Config" doc:name="verify account" >
+			<snowflake:sql ><![CDATA[SELECT *
+FROM BANK_CUSTOMER_DATA
+WHERE STATUS='ACTIVE';]]></snowflake:sql>
+		</snowflake:select>
+		<ee:transform doc:name="Transform Message" doc:id="19e7c10d-63c4-4c93-8319-70627f02c160" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<foreach doc:name="For Each" doc:id="eb746dcc-e27a-490c-838d-ec9b8c5711fd" >
+			<set-variable value="#[payload]" doc:name="customer" doc:id="aa383ae4-a464-413a-92ff-e82b1e23eee1" variableName="customer"/>
+			<logger level="INFO" doc:name="inside foreach" doc:id="7e24466a-6bc2-4653-aba1-ad07f2408c8a" message="START: #[payload.FULLNAME] - #[payload.ACCOUNTNUMBER]"/>
+			<set-variable value="#[payload.EMAIL as String]" doc:name="EMAIL" doc:id="9013fd9a-201a-4eb2-bdaa-77d0697bf052" variableName="EMAIL" />
+			<set-variable value="#[payload.BANKNAME as String]" doc:name="BANKNAME" doc:id="9cef0442-4986-49e7-8130-37d3a394a08d" variableName="BANKNAME" />
+			<logger level="INFO" doc:name="Before html transformation" doc:id="6db30acd-25ba-4ff2-9d3c-2a8f1fa952fe" message="Before HTML: #[payload.FULLNAME]"/>
+			<ee:transform doc:name="html email template" doc:id="e7dfeccd-df31-4310-b4e9-ea0007f2d232" >
+				<ee:message >
+					<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+
+var customer = vars.customer
+
+var generatedFrom = "01-" ++ (now() as String {format: "MM-yyyy"})
+var generatedUpto = now() as String {format: "dd-MM-yyyy"}
+
+var transactionString =
+    (customer.TRANSACTIONS default "[]") as String
+
+var transactions =
+    if (isEmpty(transactionString))
+        []
+    else
+        read(transactionString, "application/json")
+
+var balance =
+    (customer.BALANCE default 0) as Number
+
+var totalWithdraw =
+    transactions
+        filter ((item) -> upper((item.transactionType default "") as String) == "WITHDRAW")
+        reduce ((item, total = 0) ->
+            total + ((item.amount default 0) as Number)
+        )
+
+var remainingBalance =
+    if (isEmpty(transactions))
+        balance
+    else
+        (transactions[-1].balanceAfterTransaction default balance) as Number
+
+var statementMonth = now() as String {format: "MMMM yyyy"}
+
+var accountNumber =
+    (customer.ACCOUNTNUMBER default "XXXXXXXXXX") as String
+
+var accountHolder =
+    (customer.FULLNAME default "N/A") as String
+
+var status =
+    (customer.STATUS default "N/A") as String
+
+var bankName =
+    (customer.BANKNAME default "REAL BANK") as String
+
+---
+"<!DOCTYPE html>
+<html>
+<head>
+<meta charset='UTF-8'>
+
+<style>
+
+body{
+font-family:'Segoe UI',Arial,sans-serif;
+background:linear-gradient(135deg,#667eea,#764ba2);
+padding:40px 20px;
+}
+
+.container{
+max-width:1100px;
+margin:auto;
+background:white;
+border-radius:20px;
+overflow:hidden;
+box-shadow:0 25px 50px rgba(0,0,0,.2);
+}
+
+.header{
+background:linear-gradient(135deg,#1a237e,#283593);
+color:white;
+padding:40px;
+text-align:center;
+}
+
+.bank-logo{
+font-size:40px;
+}
+
+.header h1{
+font-size:32px;
+}
+
+.account-info{
+padding:30px;
+}
+
+.info-card{
+display:grid;
+grid-template-columns:repeat(6,1fr);
+gap:20px;
+background:#f8f9ff;
+padding:25px;
+border-radius:15px;
+}
+
+.label{
+font-size:12px;
+color:#666;
+}
+
+.value{
+font-size:16px;
+font-weight:bold;
+color:#1a237e;
+}
+
+
+.summary{
+padding:0 30px 30px;
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:20px;
+}
+
+
+.card{
+padding:20px;
+border:2px solid #eee;
+border-radius:15px;
+}
+
+
+.card-icon{
+font-size:30px;
+}
+
+.card-label{
+color:#666;
+font-size:13px;
+}
+
+.card-value{
+font-size:22px;
+font-weight:bold;
+color:#1a237e;
+}
+
+.balance{
+color:#4caf50;
+}
+
+
+.table-section{
+padding:0 30px 40px;
+}
+
+
+table{
+width:100%;
+border-collapse:separate;
+border-spacing:0 8px;
+}
+
+
+th{
+background:#667eea;
+color:white;
+padding:15px;
+}
+
+
+td{
+padding:15px;
+text-align:center;
+background:#fff;
+border-bottom:1px solid #eee;
+}
+
+
+.badge{
+padding:5px 12px;
+border-radius:20px;
+font-size:12px;
+font-weight:bold;
+}
+
+
+.credit{
+background:#e8f5e9;
+color:#2e7d32;
+}
+
+
+.debit{
+background:#ffebee;
+color:#c62828;
+}
+
+
+.amount-credit{
+color:#2e7d32;
+font-weight:bold;
+}
+
+
+.amount-debit{
+color:#c62828;
+font-weight:bold;
+}
+
+
+.footer{
+background:#f8f9ff;
+padding:25px;
+text-align:center;
+}
+
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<div class='container'>
+
+
+<div class='header'>
+
+<div class='bank-logo'>🏦" ++ bankName ++ "</div>
+
+<h1>Your Monthly Mini Statement - " ++ statementMonth ++ "</h1>
+
+<p>Your financial overview at a glance</p>
+
+</div>
+
+
+
+<div class='account-info'>
+
+<div class='info-card'>
+
+
+<div>
+<span class='label'>Account Number</span>
+<br>
+<span class='value'>" ++ accountNumber ++ "</span>
+</div>
+
+
+
+<div>
+<span class='label'>Account Holder</span>
+<br>
+<span class='value'>" ++ accountHolder ++ "</span>
+</div>
+
+<div>
+<span class='label'>Generated From</span>
+<br/>
+<span class='value'>" ++ generatedFrom ++ "</span>
+</div>
+
+<div>
+<span class='label'>Generated Upto</span>
+<br/>
+<span class='value'>" ++ generatedUpto ++ "</span>
+</div>
+
+
+
+<div>
+<span class='label'>Report Generated On</span>
+<br>
+<span class='value'>" ++ (now() as String {format: "dd-MM-yyyy hh:mm:ss a"}) ++ "</span>
+</div>
+
+<div>
+    <span class='label'>Status</span>
+    <br/>
+    <span class='value' style='color:" ++
+        (if (upper(status) == "ACTIVE") "green" else "red")
+        ++ ";'>
+        ● " ++ status ++ "
+    </span>
+</div>
+
+
+</div>
+
+</div>
+
+
+
+
+<div class='summary'>
+
+<div class='card'>
+    <div class='card-icon'>💰</div>
+    <div class='card-content'>
+        <div class='card-label'>Available Balance</div>
+        <div class='card-value balance'>₹ " ++ (balance as String) ++ "</div>
+    </div>
+</div>
+
+<div class='card'>
+    <div class='card-icon'>📊</div>
+    <div class='card-content'>
+        <div class='card-label'>Total Transactions</div>
+        <div class='card-value'>" ++ (sizeOf(transactions) as String) ++ "</div>
+    </div>
+</div>
+
+<div class='card'>
+    <div class='card-icon'>🏦</div>
+    <div class='card-content'>
+        <div class='card-label'>Bank</div>
+        <div class='card-value'>" ++ bankName ++ "</div>
+    </div>
+</div>
+
+</div>
+
+
+
+
+<div class='table-section'>
+
+
+<table>
+
+
+<tr>
+
+<th>S.No</th>
+
+<th>Transaction Type</th>
+
+<th>Amount</th>
+
+<th>Balance</th>
+
+<th>Date & Time</th>
+
+</tr>
+
+
+" ++
+
+(
+transactions map ((item,index)->
+
+
+"<tr>
+
+<td>" ++ ((index+1) as String) ++ "</td>
+
+
+<td>
+
+<span class='badge " ++
+
+(if ((item.transactionType default "") as String == "DEPOSIT")
+"credit"
+else
+"debit")
+
+++ "'>
+
+" ++
+
+((item.transactionType default "UNKNOWN") as String)
+
+++
+
+"</span>
+
+</td>
+
+
+
+<td class='" ++
+
+(if ((item.transactionType default "") as String == "DEPOSIT")
+"amount-credit"
+else
+"amount-debit")
+
+++
+
+"'>
+
+
+" ++
+
+(if ((item.transactionType default "") as String == "DEPOSIT")
+"+"
+else
+"-")
+
+++
+
+"₹ "
+
+++
+
+((item.amount default 0) as String)
+
+++
+
+"</td>
+
+
+
+
+<td>
+
+₹ "
+
+++
+
+((item.balanceAfterTransaction default 0) as String)
+
+++
+
+"</td>
+
+
+
+<td>
+
+"
+
+++
+
+((item.timestamp default "") as String)
+
+++
+
+"
+
+</td>
+
+
+</tr>"
+
+)
+
+joinBy ""
+
+)
+++
+
+"
+
+</table>
+
+</div>
+
+<div style='margin:35px 30px;'>
+
+<table style='width:100%;border-collapse:collapse;border:1px solid #d9d9d9;font-family:Segoe UI,Arial,sans-serif;'>
+
+<tr>
+<th colspan='2'
+style='background:#1a237e;color:white;padding:14px;font-size:18px;text-align:center;'>
+ACCOUNT SUMMARY
+</th>
+</tr>
+
+<tr>
+<td style='padding:14px;font-weight:bold;background:#f7f9fc;'>
+Available Balance
+</td>
+
+<td style='padding:14px;text-align:right;color:#2e7d32;font-weight:bold;'>
+₹ "
+++
+(remainingBalance as String)
+++
+"
+</td>
+</tr>
+
+<tr>
+<td style='padding:14px;font-weight:bold;background:#f7f9fc;'>
+Total Withdraw Amount
+</td>
+
+<td style='padding:14px;text-align:right;color:#c62828;font-weight:bold;'>
+₹ "
+++
+(totalWithdraw as String)
+++
+"
+</td>
+</tr>
+
+</table>
+
+</div>
+
+<div class='footer'>
+
+<b>Real Bank</b><br/><br/>
+
+📞 Customer Care : +91 9494207062<br/>
+
+✉ support@realbank.com<br/>
+
+🌐 www.realbank.com<br/><br/>
+
+© 2026 Real Bank. All Rights Reserved.<br/><br/>
+
+This is an automated transaction alert. Please do not reply to this email.
+
+</div>
+
+</div>
+
+</body>
+
+</html>
+"]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+			<set-variable doc:name="templete" doc:id="386ca860-117e-46a9-98cb-a87405649aa4" variableName="templete" value="#[payload]"/>
+			<logger level="INFO" doc:name="type of payload before invoking html to pdf service" doc:id="35f4bd98-348a-4987-b01f-2cdcbe6293f7" message="#[%dw 2.0&#10;output application/json&#10;---&#10;{&#10;    payloadType: typeOf(payload),&#10;    variableType: typeOf(vars.templete),&#10;    emailBody: vars.templete&#10;}]" />
+			<http:request method="POST" doc:name="Request sending to html to pdf service external call" doc:id="6af5fa5e-0b45-4366-bc0c-de2229860f7d" config-ref="HTTP_Request_configuration" path="/v3/convert/pdf">
+				<http:body ><![CDATA[#[%dw 2.0
+output application/json
+
+---
+{
+    source: vars.templete
+}]]]></http:body>
+				<http:headers ><![CDATA[#[output application/java
+---
+{
+	"X-API-Key" : "sk_a1c772744bdfed2a4b933194335f40329d9441c8",
+	"Content-Type" : "application/json"
+}]]]></http:headers>
+			</http:request>
+			<logger level="INFO" doc:name="after html to pdf service checking type of payload" doc:id="f07d1ed0-0058-4a57-a331-e4f85e746ae4" message="#[%dw 2.0&#10;output application/json&#10;---&#10;{&#10;    payloadType: typeOf(payload),&#10;    size: sizeOf(payload),&#10;    isNull: payload == null&#10;}]"/>
+			<set-variable value="#[payload]" doc:name="pdfAttachment" doc:id="850a2dee-96d3-4f80-a520-abbc3ef8696d" variableName="pdfAttachment"/>
+			<set-variable value="#[vars.customer.FULLNAME]" doc:name="fileName" doc:id="98e7911e-d867-479f-b310-002368cb9c69" variableName="fileName"/>
+			<file:write doc:name="save fle into our local" doc:id="5b51fae1-4d5c-47d4-8230-5511831a6028" config-ref="File_Config" path='#["Desktop/ministement pdfs/" ++ vars.fileName ++ " - " ++ uuid() ++".pdf"]'/>
+			<set-variable value="#[%dw 2.0&#10;output text/plain&#10;---&#10;&quot;&lt;html&gt;&#10;&lt;body style='font-family:Arial,sans-serif'&gt;&#10;&lt;h2 style='color:#0B5394'&gt;Greetings from &quot; ++ (vars.BANKNAME default &quot;Our Bank&quot;) ++ &quot;&lt;/h2&gt;&#10;&#10;&lt;p&gt;Dear Customer,&lt;/p&gt;&#10;&#10;&lt;p&gt;We hope you are doing well.&lt;/p&gt;&#10;&#10;&lt;p&gt;&#10;Please find your &lt;b&gt;Monthly Account Statement&lt;/b&gt; attached with this email.&#10;&lt;/p&gt;&#10;&#10;&lt;p&gt;&#10;Kindly review the attached statement. If you have any questions, please contact our customer support.&#10;&lt;/p&gt;&#10;&#10;&lt;p&gt;&#10;Thank you for banking with &lt;b&gt;&quot; ++ (vars.BANKNAME default &quot;Our Bank&quot;) ++ &quot;&lt;/b&gt;. We appreciate your continued trust and support.&#10;&lt;/p&gt;&#10;&#10;&lt;p&gt;&#10;Thanks &amp; Regards,&lt;br/&gt;&#10;&lt;b&gt;Customer Service Team&lt;/b&gt;&lt;br/&gt;&#10;&quot; ++ (vars.BANKNAME default &quot;Our Bank&quot;) ++ &quot;&#10;&lt;/p&gt;&#10;&#10;&lt;hr/&gt;&#10;&#10;&lt;p style='font-size:12px;color:gray'&gt;&#10;This is an automated email. Please do not reply to this email.&#10;&lt;/p&gt;&#10;&#10;&lt;/body&gt;&#10;&lt;/html&gt;&quot;]" doc:name="emailbody" doc:id="53397046-0d02-489f-ae79-a70a6f8d3b31" variableName="emailbody" />
+			<email:send doc:name="Email sending to the respective users" doc:id="e6b0526d-917c-4782-b758-3e9e2fc290a7" config-ref="Email_SMTP" fromAddress="narsingbeesetti06@gmail.com" subject='#["Please find your monthly statement - " ++ vars.BANKNAME as String]'>
+						<email:to-addresses>
+							<email:to-address value="#[vars.EMAIL]" />
+						</email:to-addresses>
+						<email:body contentType="text/html">
+					<email:content ><![CDATA[#[vars.emailbody]]]></email:content>
+				</email:body>
+						<email:attachments><![CDATA[#[Monthlystatement: vars.pdfAttachment]]]></email:attachments>
+					</email:send>
+			<logger level="INFO" doc:name="accountNumberType" doc:id="6696ca70-7bf9-4988-84f4-405525d7846c" message='"AccountNumber = #[vars.customer.ACCOUNTNUMBER] Type = #[typeOf(vars.customer.ACCOUNTNUMBER)]"'/>
+			<snowflake:update doc:name="update email sent or not " doc:id="cbc3df16-b426-4ea8-a33c-2d37be2f8596" config-ref="Snowflake_Config">
+				<snowflake:sql><![CDATA[UPDATE bank_customer_data
+SET EMAIL_SENT = 'TRUE'
+WHERE ACCOUNTNUMBER = :accountNumber;]]></snowflake:sql>
+				<snowflake:input-parameters><![CDATA[#[{
+	"accountNumber": vars.customer.ACCOUNTNUMBER
+}]]]></snowflake:input-parameters>
+			</snowflake:update>
+			<logger level="INFO" doc:name="Rows updated" doc:id="9b7f2be8-7341-4c19-9bc3-ab463f503f45" message="===============Rows Updated========#[payload]" />
+			<logger level="INFO" doc:name="End Flow" doc:id="4cec7ead-72cc-498f-b3a3-ced74eded5aa" message="----------------End Flow---------------#[payload]"/>
+		</foreach>
+	</flow>
+</mule>
