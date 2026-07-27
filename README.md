@@ -11,12 +11,20 @@ The application runs on a scheduler, retrieves customer details and transaction 
 # Features
 
 - Automatic scheduler execution every 5 minutes
+- <img width="1171" height="755" alt="image" src="https://github.com/user-attachments/assets/d8db2005-44ad-42eb-b038-2a2f0a52a0a2" />
 - Fetch active customers from Snowflake
+- <img width="1287" height="827" alt="image" src="https://github.com/user-attachments/assets/14efcbc1-bc3e-4bb3-8ae7-af78cc6801d9" />
 - Generate professional HTML bank statement
+- <img width="471" height="686" alt="image" src="https://github.com/user-attachments/assets/513b5f96-17a3-4737-8c5d-f8ace1399355" />
 - Convert HTML to PDF using PDFShift REST API
+- <img width="1800" height="827" alt="image" src="https://github.com/user-attachments/assets/4b42d3ba-f46d-45a5-a6e7-203c21e965be" />
 - Save PDF into local directory
+- <img width="1072" height="377" alt="image" src="https://github.com/user-attachments/assets/fbc2a458-9d0e-4f59-9e2e-e267e734714b" />
 - Send PDF through Gmail SMTP
+- <img width="1660" height="932" alt="image" src="https://github.com/user-attachments/assets/d407b94f-3686-48f5-9f10-9e132e9ecc28" />
 - Update EMAIL_SENT status in Snowflake
+- <img width="917" height="177" alt="image" src="https://github.com/user-attachments/assets/13b12607-5e42-4dfe-a753-5b97bf01a9b1" />
+
 - Detailed logging throughout the flow
 
 ---
